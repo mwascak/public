@@ -1,0 +1,17 @@
+#!/bin/bash
+mysql -u backup -h localhost -e 'FLUSH TABLES WITH READ LOCK;'
+sync
+for target in $(findmnt -nlo TARGET -t ext4); do fsfreeze -f $target; done
+
+instance=`curl -s http://169.254.169.254/latest/meta-data/instance-id`
+region=`curl -s 169.254.169.254/latest/meta-data/placement/availability-zone`
+region=${region::-1}
+volumes=`aws ec2 describe-instance-attribute --instance-id $instance --attribute blockDeviceMapping --output text --query BlockDeviceMappings[*].Ebs.VolumeId --region $region`
+
+for volume in $(echo $volumes | tr " " "\n")
+do aws ec2 create-snapshot --volume-id $volume --description 'Consistent snapshot of MySQL on Amazon Linux' --region $region > /dev/null 2>&1
+done
+
+for target in $(findmnt -nlo TARGET -t ext4); do fsfreeze -u $target; done
+
+mysql -u backup -h localhost -e 'UNLOCK TABLES;'
